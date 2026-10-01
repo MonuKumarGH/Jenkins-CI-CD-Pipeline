@@ -1,0 +1,56 @@
+pipeline {
+    agent any
+    tools {
+        maven "mymaven"
+    }
+    stages {
+        stage ("SourceCode") {
+            steps {
+                git 'https://github.com/MonuKumarGH/one.git'
+            }
+        }
+        stage ("Build") {
+            steps {
+                sh 'mvn clean install'    
+            }
+        }
+        stage ("CQA") {
+            steps {
+                withSonarQubeEnv('mysonar') {
+                    sh '''
+                       mvn clean verify \
+                       org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+                       -Dsonar.projectKey=MyProject \
+                       -Dsonar.host.url=http://13.59.4.34:9000 \
+                       -Dsonar.login=51aaace513ef057fb5a9532d6230a8f509598cf5
+                    '''
+                }
+            }
+        }
+        stage ("QualityGates") {
+            steps {
+                waitForQualityGate abortPipeline: true, credentialsId: 'sonarqube'
+            }
+        }
+        stage ("ArtiFact") {
+            steps {
+                script {
+                    def pom = readMavenPom file: 'pom.xml' //install pipeline utility plugin
+                    nexusArtifactUploader artifacts: [[artifactId: pom.artifactId, classifier: '', file: 'target/myweb.war', type: 'war']], credentialsId: 'Nexus', groupId: pom.groupId, nexusUrl: '3.139.99.189:8081', nexusVersion: 'nexus3', protocol: 'http', repository: 'ArtiRepo', version: pom.version
+                      }
+                  }
+        }
+        stage ("Deploy") {
+            steps {
+                deploy adapters: [tomcat9(alternativeDeploymentContext: '', credentialsId: 'tomcat', path: '', url: 'http://52.14.123.214:8080/')], contextPath: 'Nexus Ecom', war: 'target/*.war'
+            }
+        }
+    }
+    post {
+        always {
+            mail to: 'mandalmonukumar465@gmail.com',
+            subject: "Build Status: ${currentBuild.fullDisplayName}",
+            body: "The build ${env.BUILD_NUMBER} finished with status: ${currentBuild.currentResult}. View logs at: ${env.BUILD_URL}"
+        }
+    }
+}
